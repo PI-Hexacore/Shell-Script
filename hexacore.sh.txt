@@ -1,0 +1,164 @@
+#!/bin/bash
+
+# ==============================================
+# SCRIPT DE AUTOMAÇÃO HEXACORE (BACK + DB + FRONT)
+# ==============================================
+
+echo "============================="
+echo " Iniciando Setup da Hexacore "
+echo "============================="
+
+# -----------------------------
+# 1. Verifica se o Git está instalado
+# -----------------------------
+git --version > /dev/null 2>&1
+if [ $? != 0 ]; then
+  echo "Git não encontrado. Instalando..."
+  sudo apt update
+  sudo apt install git -y
+fi
+
+# -----------------------------
+# 2. Verifica e instala Java + Maven (para backend)
+# -----------------------------
+java -version > /dev/null 2>&1
+if [ $? != 0 ]; then
+  echo "Java não está instalado. Instalando Java + Maven..."
+  sudo apt update
+  sudo apt install openjdk-21-jre maven -y
+fi
+
+# -----------------------------
+# 3. Verifica e instala Node.js + npm (para frontend)
+# -----------------------------
+node -v > /dev/null 2>&1
+if [ $? != 0 ]; then
+  echo "Node.js não está instalado. Instalando..."
+  sudo apt update
+  sudo apt install nodejs npm -y
+fi
+
+# -----------------------------
+# 4. Verifica Docker
+# -----------------------------
+docker --version > /dev/null 2>&1
+if [ $? != 0 ]; then
+  echo "Docker não está instalado. Instalando Docker..."
+  sudo apt update
+  sudo apt install docker.io -y
+  sudo systemctl start docker
+  sudo systemctl enable docker
+fi
+
+# -----------------------------
+# 5. Permissão Docker
+# -----------------------------
+if ! groups $USER | grep -q '\bdocker\b'; then
+  echo "Adicionando usuário ao grupo Docker..."
+  sudo usermod -aG docker $USER
+  echo "⚠️ Saia e entre novamente no sistema, depois rode o script de novo."
+  exit 0
+fi
+
+# -----------------------------
+# 6. Clona os repositórios
+# -----------------------------
+BASE_DIR=Hexacore_Project
+mkdir -p $BASE_DIR && cd $BASE_DIR
+
+echo "Clonando os repositórios..."
+git clone https://github.com/PI-Hexacore/Java
+git clone https://github.com/PI-Hexacore/BdHexacore
+git clone https://github.com/PI-Hexacore/Site_Hexacore
+
+# -----------------------------
+# 7. Banco de Dados (Docker)
+# -----------------------------
+echo "Configurando o Banco de Dados..."
+cd BdHexacore
+
+# Cria Dockerfile do MySQL
+cat <<EOF > Dockerfile
+FROM mysql:8.0
+ENV MYSQL_ROOT_PASSWORD=142536@
+ENV MYSQL_DATABASE=Hexacore
+COPY ./scripts/ /docker-entrypoint-initdb.d/
+EXPOSE 3306
+EOF
+
+docker build -t hexacore-db .
+docker run -d --name hexacore-db -p 3306:3306 hexacore-db
+
+if [ $? = 0 ]; then
+  echo "✅ Banco de dados rodando no container (porta 3306)."
+else
+  echo "❌ Erro ao iniciar o container do banco de dados."
+  exit 1
+fi
+
+cd ..
+
+# -----------------------------
+# 8. Backend (Java + Maven)
+# -----------------------------
+echo "Construindo o backend..."
+cd Java
+
+mvn clean package
+
+JAR_FILE="target/PI-1.0-SNAPSHOT.jar"
+if [ ! -f "$JAR_FILE" ]; then
+  echo "❌ JAR não encontrado! Build falhou."
+  exit 1
+fi
+
+# Cria Dockerfile do backend
+cat <<EOF > Dockerfile
+FROM openjdk:21-jdk-slim
+WORKDIR /app
+COPY target/PI-1.0-SNAPSHOT.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]
+EOF
+
+docker build -t hexacore-backend .
+docker run -d --name hexacore-backend --link hexacore-db:mysql -p 8080:8080 hexacore-backend
+
+if [ $? = 0 ]; then
+  echo "✅ Backend rodando no container (porta 8080)."
+else
+  echo "❌ Erro ao iniciar o backend."
+  exit 1
+fi
+
+cd ..
+
+# -----------------------------
+# 9. Frontend (Node.js)
+# -----------------------------
+echo "Instalando e iniciando o frontend..."
+cd Site_Hexacore
+
+# Instala dependências
+npm install
+
+# Define a porta 3333 no ambiente (caso o projeto use React/Vite)
+export PORT=3333
+
+# Constrói e roda o site
+npm run build || npm start &
+
+echo "✅ Frontend iniciado (porta 3333)."
+
+cd ..
+
+# -----------------------------
+# 10. Resumo final
+# -----------------------------
+echo ""
+echo "=========================================="
+echo "🚀 Setup concluído com sucesso!"
+echo "Banco de Dados: rodando na porta 3306"
+echo "Backend: rodando na porta 8080"
+echo "Frontend: rodando na porta 3333"
+echo "=========================================="
