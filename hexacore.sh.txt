@@ -82,7 +82,7 @@ cat <<EOF > Dockerfile
 FROM mysql:8.0
 ENV MYSQL_ROOT_PASSWORD=142536@
 ENV MYSQL_DATABASE=Hexacore
-COPY ./scripts/ /docker-entrypoint-initdb.d/
+COPY ./Hexacore_Project/BdHexacore/ /docker-entrypoint-initdb.d/
 EXPOSE 3306
 EOF
 
