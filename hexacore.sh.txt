@@ -71,22 +71,34 @@ git clone https://github.com/PI-Hexacore/Java
 git clone https://github.com/PI-Hexacore/BdHexacore
 git clone https://github.com/PI-Hexacore/Site_Hexacore
 
+
 # -----------------------------
 # 7. Banco de Dados (Docker)
 # -----------------------------
 echo "Configurando o Banco de Dados..."
 cd BdHexacore
 
-# Cria Dockerfile do MySQL
+# Verifica se o arquivo SQL existe
+if [ ! -f "Sql.sql" ]; then
+  echo "❌ Arquivo sql.sql não encontrado em $(pwd)"
+  echo "Certifique-se de que o script do banco está dentro de BdHexacore/"
+  exit 1
+fi
+
+# Cria o Dockerfile dentro da pasta do BD
+echo "Criando Dockerfile do Banco de Dados..."
 cat <<EOF > Dockerfile
 FROM mysql:8.0
-ENV MYSQL_ROOT_PASSWORD=142536@
-ENV MYSQL_DATABASE=Hexacore
-COPY ./Hexacore_Project/BdHexacore/ /docker-entrypoint-initdb.d/
+ENV MYSQL_ROOT_PASSWORD=142536
+ENV MYSQL_DATABASE=hexacore
+COPY Sql.sql /docker-entrypoint-initdb.d/
 EXPOSE 3306
 EOF
 
+# 🔥 Garante que o build seja feito na mesma pasta onde está o sql.sql e o Dockerfile
 docker build -t hexacore-db .
+
+# Roda o container
 docker run -d --name hexacore-db -p 3306:3306 hexacore-db
 
 if [ $? = 0 ]; then
@@ -101,44 +113,43 @@ cd ..
 # -----------------------------
 # 8. Backend (Java + Maven)
 # -----------------------------
-echo "Construindo o backend..."
-cd Java
 
-mvn clean package
+#!/bin/bash
+set -e
 
-JAR_FILE="target/PI-1.0-SNAPSHOT.jar"
+# Caminho do projeto Java
+PROJECT_DIR="/home/ubuntu/Shell-Script/Hexacore_Project/Java/Hexacore-backend-java"
+cd "$PROJECT_DIR"
+
+echo "🛠 Construindo o backend..."
+mvn clean package -DskipTests
+
+# Pegar o JAR mais recente da pasta target
+JAR_FILE=$(ls -t target/*.jar | head -n 1)
+
 if [ ! -f "$JAR_FILE" ]; then
-  echo "❌ JAR não encontrado! Build falhou."
+  echo "❌ Nenhum JAR encontrado! Build falhou."
   exit 1
 fi
 
-# Cria Dockerfile do backend
-cat <<EOF > Dockerfile
-FROM openjdk:21-jdk-slim
-WORKDIR /app
-COPY target/PI-1.0-SNAPSHOT.jar app.jar
-EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
-EOF
+echo "✅ JAR encontrado: $JAR_FILE"
 
-docker build -t hexacore-backend .
-docker run -d --name hexacore-backend --link hexacore-db:mysql -p 8080:8080 hexacore-backend
-
-if [ $? = 0 ]; then
-  echo "✅ Backend rodando no container (porta 8080)."
-else
-  echo "❌ Erro ao iniciar o backend."
-  exit 1
+# Matar qualquer processo anterior do mesmo JAR (opcional)
+if pgrep -f "Hexacore-backend-java-1.0-SNAPSHOT.jar" > /dev/null; then
+  echo "⚠ Parando instância anterior do backend..."
+  pkill -f "Hexacore-backend-java-1.0-SNAPSHOT.jar"
 fi
 
-cd ..
+echo "🚀 Iniciando o backend..."
+nohup java -jar "$JAR_FILE" > backend.log 2>&1 &
+
+echo "✅ Backend iniciado com sucesso! Log: $PROJECT_DIR/backend.log"
 
 # -----------------------------
 # 9. Frontend (Node.js)
 # -----------------------------
 echo "Instalando e iniciando o frontend..."
-cd Site_Hexacore
-
+cd /home/ubuntu/Shell-Script/Hexacore_Project/Site_Hexacore
 # Instala dependências
 npm install
 
