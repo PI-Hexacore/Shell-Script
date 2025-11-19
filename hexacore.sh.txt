@@ -61,54 +61,67 @@ if ! groups $USER | grep -q '\bdocker\b'; then
 fi
 
 # -----------------------------
-# 6. Clona os repositórios
+# 6. Clona ou atualiza os repositórios
 # -----------------------------
 BASE_DIR=Hexacore_Project
-mkdir -p $BASE_DIR && cd $BASE_DIR
+mkdir -p $BASE_DIR
+cd $BASE_DIR
 
-echo "Clonando os repositórios..."
-git clone https://github.com/PI-Hexacore/Java
-git clone https://github.com/PI-Hexacore/BdHexacore
-git clone https://github.com/PI-Hexacore/Site_Hexacore
+echo "📦 Verificando repositórios..."
+
+update_or_clone() {
+  local REPO_URL=$1
+  local FOLDER_NAME=$2
+
+  if [ -d "$FOLDER_NAME/.git" ]; then
+    echo "🔄 Atualizando $FOLDER_NAME..."
+    cd $FOLDER_NAME
+    git pull
+    cd ..
+  else
+    echo "⬇️ Clonando $FOLDER_NAME..."
+    git clone $REPO_URL
+  fi
+}
+
+update_or_clone "https://github.com/PI-Hexacore/Java" "Java"
+update_or_clone "https://github.com/PI-Hexacore/BdHexacore" "BdHexacore"
+update_or_clone "https://github.com/PI-Hexacore/Site_Hexacore" "Site_Hexacore"
+
+echo "✅ Repositórios sincronizados!"
 
 
 # -----------------------------
-# 7. Banco de Dados (Docker)
+# 7. Banco de Dados (Docker Hub)
 # -----------------------------
-echo "Configurando o Banco de Dados..."
-cd BdHexacore
 
-# Verifica se o arquivo SQL existe
-if [ ! -f "Sql.sql" ]; then
-  echo "❌ Arquivo sql.sql não encontrado em $(pwd)"
-  echo "Certifique-se de que o script do banco está dentro de BdHexacore/"
-  exit 1
-fi
+CONTAINER_DB="hexacore-db"
+IMAGE_DB="ismaelpaivajr/hexacore_bd:latest"
 
-# Cria o Dockerfile dentro da pasta do BD
-echo "Criando Dockerfile do Banco de Dados..."
-cat <<EOF > Dockerfile
-FROM mysql:8.0
-ENV MYSQL_ROOT_PASSWORD=142536
-ENV MYSQL_DATABASE=hexacore
-COPY Sql.sql /docker-entrypoint-initdb.d/
-EXPOSE 3306
-EOF
+echo "🐬 Atualizando imagem do banco de dados..."
+docker pull $IMAGE_DB
 
-# 🔥 Garante que o build seja feito na mesma pasta onde está o sql.sql e o Dockerfile
-docker build -t hexacore-db .
+echo "🔍 Verificando container do banco..."
 
-# Roda o container
-docker run -d --name hexacore-db -p 3306:3306 hexacore-db
+if docker ps -a --format '{{.Names}}' | grep -w "$CONTAINER_DB" > /dev/null; then
+  echo "📦 Container do banco já existe."
 
-if [ $? = 0 ]; then
-  echo "✅ Banco de dados rodando no container (porta 3306)."
+  if docker ps --format '{{.Names}}' | grep -w "$CONTAINER_DB" > /dev/null; then
+    echo "⚙️ Container está rodando. Reiniciando com nova imagem..."
+    docker stop $CONTAINER_DB
+    docker rm $CONTAINER_DB
+    docker run -d --name $CONTAINER_DB -p 3306:3306 $IMAGE_DB
+  else
+    echo "▶️ Container parado. Removendo e recriando..."
+    docker rm $CONTAINER_DB
+    docker run -d --name $CONTAINER_DB -p 3306:3306 $IMAGE_DB
+  fi
 else
-  echo "❌ Erro ao iniciar o container do banco de dados."
-  exit 1
+  echo "⬇️ Container não existe. Criando..."
+  docker run -d --name $CONTAINER_DB -p 3306:3306 $IMAGE_DB
 fi
 
-cd ..
+echo "✅ Banco de dados atualizado e rodando!"
 
 # -----------------------------
 # 8. Backend (Java + Maven)
@@ -153,13 +166,13 @@ cd /home/ubuntu/Shell-Script/Hexacore_Project/Site_Hexacore
 # Instala dependências
 npm install
 
-# Define a porta 3333 no ambiente (caso o projeto use React/Vite)
-export PORT=3333
+# Define a porta 80 no ambiente (caso o projeto use React/Vite)
+export PORT=80
 
 # Constrói e roda o site
 npm run build || npm start &
 
-echo "✅ Frontend iniciado (porta 3333)."
+echo "✅ Frontend iniciado (porta 80)."
 
 cd ..
 
@@ -171,5 +184,5 @@ echo "=========================================="
 echo "🚀 Setup concluído com sucesso!"
 echo "Banco de Dados: rodando na porta 3306"
 echo "Backend: rodando na porta 8080"
-echo "Frontend: rodando na porta 3333"
+echo "Frontend: rodando na porta 80"
 echo "=========================================="
