@@ -140,7 +140,7 @@ cat <<EOF > Dockerfile
 # Etapa 1: Build com Maven
 FROM maven:3.9.6-eclipse-temurin-21 AS build
 WORKDIR /app
-COPY . .
+COPY . . 
 RUN mvn clean package -DskipTests
 
 # Etapa 2: Executar a aplicação
@@ -177,6 +177,13 @@ FRONTEND_DIR="$PWD/../../Site_Hexacore"
 
 cd "$FRONTEND_DIR"
 
+# Verifica se o build está configurado corretamente no package.json
+if ! grep -q '"build"' package.json; then
+  echo "Script 'build' não encontrado no package.json. Adicionando..."
+  # Adiciona o script de build se ele não estiver presente
+  jq '.scripts.build = "react-scripts build"' package.json > temp.json && mv temp.json package.json
+fi
+
 # Remover container antigo
 docker stop $CONTAINER_FRONT 2>/dev/null
 docker rm $CONTAINER_FRONT 2>/dev/null
@@ -187,18 +194,20 @@ if [ ! -f Dockerfile ]; then
 cat <<EOF > Dockerfile
 FROM node:18 AS build
 WORKDIR /app
-COPY . .
+COPY . . 
 RUN npm install
 RUN npm run build
 
 FROM nginx:latest
-COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=build /app/build /usr/share/nginx/html
 EOF
 fi
 
 # Build da imagem
+echo "📦 Construindo imagem do frontend..."
 docker build -t $IMAGE_FRONT .
 
+# Criar container
 echo "🚀 Criando container do frontend..."
 docker run -d --name $CONTAINER_FRONT -p 80:80 $IMAGE_FRONT
 
