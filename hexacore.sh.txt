@@ -92,103 +92,117 @@ echo "✅ Repositórios sincronizados!"
 
 
 # -----------------------------
-# 7. Banco de Dados (Docker Hub)
+# 7. Banco de Dados — Criar container do zero
 # -----------------------------
-
 CONTAINER_DB="hexacore-db"
-IMAGE_DB="ismaelpaivajr/hexacore_bd:latest"
+DB_ROOT_PASS="142536"
+DB_NAME="hexacore"
 
-echo "🐬 Atualizando imagem do banco de dados..."
-docker pull $IMAGE_DB
+echo "🐬 Criando banco de dados do zero..."
 
-echo "🔍 Verificando container do banco..."
+# Remove container antigo se existir
+docker stop $CONTAINER_DB 2>/dev/null
+docker rm $CONTAINER_DB 2>/dev/null
 
-if docker ps -a --format '{{.Names}}' | grep -w "$CONTAINER_DB" > /dev/null; then
-  echo "📦 Container do banco já existe."
+# Cria o container MySQL do zero
+docker run -d \
+  --name $CONTAINER_DB \
+  -e MYSQL_ROOT_PASSWORD=$DB_ROOT_PASS \
+  -e MYSQL_DATABASE=$DB_NAME \
+  -p 3306:3306 \
+  mysql:8.0
 
-  if docker ps --format '{{.Names}}' | grep -w "$CONTAINER_DB" > /dev/null; then
-    echo "⚙️ Container está rodando. Reiniciando com nova imagem..."
-    docker stop $CONTAINER_DB
-    docker rm $CONTAINER_DB
-    docker run -d --name $CONTAINER_DB -p 3306:3306 $IMAGE_DB
-  else
-    echo "▶️ Container parado. Removendo e recriando..."
-    docker rm $CONTAINER_DB
-    docker run -d --name $CONTAINER_DB -p 3306:3306 $IMAGE_DB
-  fi
-else
-  echo "⬇️ Container não existe. Criando..."
-  docker run -d --name $CONTAINER_DB -p 3306:3306 $IMAGE_DB
+echo "✅ Banco de dados criado e rodando!"
+
+
+# -----------------------------
+# 8. Backend (Java + Maven em Docker)
+# -----------------------------
+
+BACKEND_CONTAINER="hexacore-backend"
+BACKEND_IMAGE="hexacore-backend-img"
+BACKEND_DIR="$PWD/Java/Hexacore-backend-java"
+
+echo "🛠 Preparando backend dentro de container..."
+
+cd "$BACKEND_DIR"
+
+# Remover container antigo
+docker stop $BACKEND_CONTAINER 2>/dev/null
+docker rm $BACKEND_CONTAINER 2>/dev/null
+
+# Remover imagem antiga
+docker rmi $BACKEND_IMAGE 2>/dev/null || true
+
+# Criar Dockerfile caso não exista
+if [ ! -f Dockerfile ]; then
+cat <<EOF > Dockerfile
+# Etapa 1: Build com Maven
+FROM maven:3.9.6-eclipse-temurin-21 AS build
+WORKDIR /app
+COPY . .
+RUN mvn clean package -DskipTests
+
+# Etapa 2: Executar a aplicação
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+COPY --from=build /app/target/*.jar app.jar
+EXPOSE 8080
+CMD ["java", "-jar", "app.jar"]
+EOF
 fi
 
-echo "✅ Banco de dados atualizado e rodando!"
+echo "📦 Construindo imagem do backend..."
+docker build -t $BACKEND_IMAGE .
+
+echo "🚀 Subindo container do backend..."
+docker run -d \
+  --name $BACKEND_CONTAINER \
+  -p 8080:8080 \
+  --restart always \
+  $BACKEND_IMAGE
+
+echo "✅ Backend rodando no container!"
+
 
 # -----------------------------
-# 8. Backend (Java + Maven)
+# 9. FRONTEND — Docker build local (sem Docker Hub)
 # -----------------------------
-
-#!/bin/bash
-set -e
-
-# Caminho do projeto Java
-PROJECT_DIR="/home/ubuntu/Shell-Script/Hexacore_Project/Java/Hexacore-backend-java"
-cd "$PROJECT_DIR"
-
-echo "🛠 Construindo o backend..."
-mvn clean package -DskipTests
-
-# Pegar o JAR mais recente da pasta target
-JAR_FILE=$(ls -t target/*.jar | head -n 1)
-
-if [ ! -f "$JAR_FILE" ]; then
-  echo "❌ Nenhum JAR encontrado! Build falhou."
-  exit 1
-fi
-
-echo "✅ JAR encontrado: $JAR_FILE"
-
-# Matar qualquer processo anterior do mesmo JAR (opcional)
-if pgrep -f "Hexacore-backend-java-1.0-SNAPSHOT.jar" > /dev/null; then
-  echo "⚠ Parando instância anterior do backend..."
-  pkill -f "Hexacore-backend-java-1.0-SNAPSHOT.jar"
-fi
-
-echo "🚀 Iniciando o backend..."
-nohup java -jar "$JAR_FILE" > backend.log 2>&1 &
-
-echo "✅ Backend iniciado com sucesso! Log: $PROJECT_DIR/backend.log"
-
-# -----------------------------
-# 9. Frontend (Docker Hub)
-# -----------------------------
-
 CONTAINER_FRONT="hexacore-site"
-IMAGE_FRONT="ismaelpaivajr/hexacore_site:latest"
+IMAGE_FRONT="hexacore-site-img"
 
-echo "🌐 Atualizando imagem do frontend..."
-docker pull $IMAGE_FRONT
+echo "🌐 Criando imagem Docker do frontend localmente..."
 
-echo "🔍 Verificando container do site..."
+FRONTEND_DIR="$PWD/../../Site_Hexacore"
 
-if docker ps -a --format '{{.Names}}' | grep -w "$CONTAINER_FRONT" > /dev/null; then
-  echo "📦 Container do site já existe."
+cd "$FRONTEND_DIR"
 
-  if docker ps --format '{{.Names}}' | grep -w "$CONTAINER_FRONT" > /dev/null; then
-    echo "⚙️ Site está rodando. Reiniciando..."
-    docker stop $CONTAINER_FRONT
-    docker rm $CONTAINER_FRONT
-    docker run -d --name $CONTAINER_FRONT -p 3333:80 $IMAGE_FRONT
-  else
-    echo "▶️ Container parado. Removendo e recriando..."
-    docker rm $CONTAINER_FRONT
-    docker run -d --name $CONTAINER_FRONT -p 3333:80 $IMAGE_FRONT
-  fi
-else
-  echo "⬇️ Container não existe. Criando..."
-  docker run -d --name $CONTAINER_FRONT -p 3333:80 $IMAGE_FRONT
+# Remover container antigo
+docker stop $CONTAINER_FRONT 2>/dev/null
+docker rm $CONTAINER_FRONT 2>/dev/null
+docker rmi $IMAGE_FRONT 2>/dev/null || true
+
+# Criar Dockerfile se não existir
+if [ ! -f Dockerfile ]; then
+cat <<EOF > Dockerfile
+FROM node:18 AS build
+WORKDIR /app
+COPY . .
+RUN npm install
+RUN npm run build
+
+FROM nginx:latest
+COPY --from=build /app/dist /usr/share/nginx/html
+EOF
 fi
 
-echo "✅ Frontend atualizado e rodando!"
+# Build da imagem
+docker build -t $IMAGE_FRONT .
+
+echo "🚀 Criando container do frontend..."
+docker run -d --name $CONTAINER_FRONT -p 80:80 $IMAGE_FRONT
+
+echo "✅ Frontend rodando!"
 
 
 # -----------------------------
