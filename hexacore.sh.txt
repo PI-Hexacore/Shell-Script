@@ -159,22 +159,37 @@ nohup java -jar "$JAR_FILE" > backend.log 2>&1 &
 echo "✅ Backend iniciado com sucesso! Log: $PROJECT_DIR/backend.log"
 
 # -----------------------------
-# 9. Frontend (Node.js)
+# 9. Frontend (Docker Hub)
 # -----------------------------
-echo "Instalando e iniciando o frontend..."
-cd /home/ubuntu/Shell-Script/Hexacore_Project/Site_Hexacore
-# Instala dependências
-npm install
 
-# Define a porta 80 no ambiente (caso o projeto use React/Vite)
-export PORT=80
+CONTAINER_FRONT="hexacore-site"
+IMAGE_FRONT="ismaelpaivajr/hexacore_site:latest"
 
-# Constrói e roda o site
-npm run build || npm start &
+echo "🌐 Atualizando imagem do frontend..."
+docker pull $IMAGE_FRONT
 
-echo "✅ Frontend iniciado (porta 80)."
+echo "🔍 Verificando container do site..."
 
-cd ..
+if docker ps -a --format '{{.Names}}' | grep -w "$CONTAINER_FRONT" > /dev/null; then
+  echo "📦 Container do site já existe."
+
+  if docker ps --format '{{.Names}}' | grep -w "$CONTAINER_FRONT" > /dev/null; then
+    echo "⚙️ Site está rodando. Reiniciando..."
+    docker stop $CONTAINER_FRONT
+    docker rm $CONTAINER_FRONT
+    docker run -d --name $CONTAINER_FRONT -p 3333:80 $IMAGE_FRONT
+  else
+    echo "▶️ Container parado. Removendo e recriando..."
+    docker rm $CONTAINER_FRONT
+    docker run -d --name $CONTAINER_FRONT -p 3333:80 $IMAGE_FRONT
+  fi
+else
+  echo "⬇️ Container não existe. Criando..."
+  docker run -d --name $CONTAINER_FRONT -p 3333:80 $IMAGE_FRONT
+fi
+
+echo "✅ Frontend atualizado e rodando!"
+
 
 # -----------------------------
 # 10. Resumo final
