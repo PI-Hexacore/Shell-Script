@@ -92,7 +92,7 @@ echo "✅ Repositórios sincronizados!"
 
 
 # -----------------------------
-# 7. Banco de Dados — Criar container do zero
+# 7. Banco de Dados — Criar container
 # -----------------------------
 CONTAINER_DB="hexacore-db"
 DB_ROOT_PASS="142536"
@@ -100,11 +100,9 @@ DB_NAME="hexacore"
 
 echo "🐬 Criando banco de dados do zero..."
 
-# Remove container antigo se existir
 docker stop $CONTAINER_DB 2>/dev/null
 docker rm $CONTAINER_DB 2>/dev/null
 
-# Cria o container MySQL do zero
 docker run -d \
   --name $CONTAINER_DB \
   -e MYSQL_ROOT_PASSWORD=$DB_ROOT_PASS \
@@ -114,105 +112,82 @@ docker run -d \
 
 echo "✅ Banco de dados criado e rodando!"
 
-
 # -----------------------------
-# 8. Backend (Java + Maven em Docker)
+# 8. Backend — Construir e subir imagem
 # -----------------------------
-
 BACKEND_CONTAINER="hexacore-backend"
 BACKEND_IMAGE="hexacore-backend-img"
-BACKEND_DIR="$PWD/Java/Hexacore-backend-java"
+BACKEND_DIR="$BASE_DIR/Java/Hexacore-backend-java"
 
-echo "🛠 Preparando backend dentro de container..."
+echo "🛠 Preparando backend..."
 
 cd "$BACKEND_DIR"
 
-# Remover container antigo
 docker stop $BACKEND_CONTAINER 2>/dev/null
 docker rm $BACKEND_CONTAINER 2>/dev/null
-
-# Remover imagem antiga
 docker rmi $BACKEND_IMAGE 2>/dev/null || true
 
-# Criar Dockerfile caso não exista
-if [ ! -f Dockerfile ]; then
 cat <<EOF > Dockerfile
 # Etapa 1: Build com Maven
 FROM maven:3.9.6-eclipse-temurin-21 AS build
 WORKDIR /app
-COPY . . 
+COPY . .
 RUN mvn clean package -DskipTests
 
-# Etapa 2: Executar a aplicação
+# Etapa 2: Executar o JAR
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
 EXPOSE 8080
 CMD ["java", "-jar", "app.jar"]
 EOF
-fi
 
-echo "📦 Construindo imagem do backend..."
 docker build -t $BACKEND_IMAGE .
 
-echo "🚀 Subindo container do backend..."
 docker run -d \
   --name $BACKEND_CONTAINER \
   -p 8080:8080 \
   --restart always \
   $BACKEND_IMAGE
 
-echo "✅ Backend rodando no container!"
-
+echo "✅ Backend rodando!"
 
 # -----------------------------
-# 9. FRONTEND — Docker build local (sem Docker Hub)
+# 9. Frontend — Criar imagem local
 # -----------------------------
 CONTAINER_FRONT="hexacore-site"
 IMAGE_FRONT="hexacore-site-img"
 
-echo "🌐 Criando imagem Docker do frontend localmente..."
+echo "🌐 Preparando frontend..."
 
-FRONTEND_DIR="$PWD/../../Site_Hexacore"
-
+FRONTEND_DIR="$BASE_DIR/Site_Hexacore"
 cd "$FRONTEND_DIR"
 
-# Verifica se o build está configurado corretamente no package.json
-if ! grep -q '"build"' package.json; then
-  echo "Script 'build' não encontrado no package.json. Adicionando..."
-  # Adiciona o script de build se ele não estiver presente
-  jq '.scripts.build = "react-scripts build"' package.json > temp.json && mv temp.json package.json
-fi
-
-# Remover container antigo
 docker stop $CONTAINER_FRONT 2>/dev/null
 docker rm $CONTAINER_FRONT 2>/dev/null
 docker rmi $IMAGE_FRONT 2>/dev/null || true
 
-# Criar Dockerfile se não existir
-if [ ! -f Dockerfile ]; then
 cat <<EOF > Dockerfile
 FROM node:18 AS build
 WORKDIR /app
-COPY . . 
+COPY . .
 RUN npm install
 RUN npm run build
 
 FROM nginx:latest
 COPY --from=build /app/build /usr/share/nginx/html
+EXPOSE 80
 EOF
-fi
 
-# Build da imagem
-echo "📦 Construindo imagem do frontend..."
 docker build -t $IMAGE_FRONT .
 
-# Criar container
-echo "🚀 Criando container do frontend..."
-docker run -d --name $CONTAINER_FRONT -p 80:80 $IMAGE_FRONT
+docker run -d \
+  --name $CONTAINER_FRONT \
+  -p 80:80 \
+  --restart always \
+  $IMAGE_FRONT
 
 echo "✅ Frontend rodando!"
-
 
 # -----------------------------
 # 10. Resumo final
