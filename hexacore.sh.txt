@@ -92,13 +92,13 @@ echo "✅ Repositórios sincronizados!"
 
 
 # -----------------------------
-# 7. Banco de Dados — Criar container
+# 7. Banco de Dados
 # -----------------------------
 CONTAINER_DB="hexacore-db"
 DB_ROOT_PASS="142536"
 DB_NAME="hexacore"
 
-echo "🐬 Criando banco de dados do zero..."
+echo "🐬 Criando container do banco de dados..."
 
 docker stop $CONTAINER_DB 2>/dev/null
 docker rm $CONTAINER_DB 2>/dev/null
@@ -110,82 +110,51 @@ docker run -d \
   -p 3306:3306 \
   mysql:8.0
 
-echo "✅ Banco de dados criado e rodando!"
+echo "✅ Banco de dados rodando!"
 
 # -----------------------------
-# 8. Backend — Construir e subir imagem
+# 8. Backend 
 # -----------------------------
-BACKEND_CONTAINER="hexacore-backend"
-BACKEND_IMAGE="hexacore-backend-img"
+echo "🛠 Subindo backend (modo simples igual ao BD)..."
+
 BACKEND_DIR="$BASE_DIR/Java/Hexacore-backend-java"
 
-echo "🛠 Preparando backend..."
-
-cd "$BACKEND_DIR"
-
-docker stop $BACKEND_CONTAINER 2>/dev/null
-docker rm $BACKEND_CONTAINER 2>/dev/null
-docker rmi $BACKEND_IMAGE 2>/dev/null || true
-
-cat <<EOF > Dockerfile
-# Etapa 1: Build com Maven
-FROM maven:3.9.6-eclipse-temurin-21 AS build
-WORKDIR /app
-COPY . .
-RUN mvn clean package -DskipTests
-
-# Etapa 2: Executar o JAR
-FROM eclipse-temurin:21-jre
-WORKDIR /app
-COPY --from=build /app/target/*.jar app.jar
-EXPOSE 8080
-CMD ["java", "-jar", "app.jar"]
-EOF
-
-docker build -t $BACKEND_IMAGE .
+docker stop hexacore-backend 2>/dev/null
+docker rm hexacore-backend 2>/dev/null
 
 docker run -d \
-  --name $BACKEND_CONTAINER \
+  --name hexacore-backend \
   -p 8080:8080 \
-  --restart always \
-  $BACKEND_IMAGE
+  -v "$BACKEND_DIR":/app \
+  -w /app \
+  maven:3.9.6-eclipse-temurin-21 \
+  bash -c "mvn clean package -DskipTests && java -jar /app/target/*.jar"
 
 echo "✅ Backend rodando!"
 
 # -----------------------------
-# 9. Frontend — Criar imagem local
+# 9. Frontend
 # -----------------------------
-CONTAINER_FRONT="hexacore-site"
-IMAGE_FRONT="hexacore-site-img"
+echo "🌐 Subindo frontend (modo simples igual ao BD)..."
 
-echo "🌐 Preparando frontend..."
+FRONT_DIR="$BASE_DIR/Site_Hexacore"
 
-FRONTEND_DIR="$BASE_DIR/Site_Hexacore"
-cd "$FRONTEND_DIR"
+docker stop hexacore-frontend 2>/dev/null
+docker rm hexacore-frontend 2>/dev/null
 
-docker stop $CONTAINER_FRONT 2>/dev/null
-docker rm $CONTAINER_FRONT 2>/dev/null
-docker rmi $IMAGE_FRONT 2>/dev/null || true
+# Build React dentro do container Node
+docker run --rm \
+  -v "$FRONT_DIR":/app \
+  -w /app \
+  node:18 \
+  bash -c "npm install && npm run build"
 
-cat <<EOF > Dockerfile
-FROM node:18 AS build
-WORKDIR /app
-COPY . .
-RUN npm install
-RUN npm run build
-
-FROM nginx:latest
-COPY --from=build /app/build /usr/share/nginx/html
-EXPOSE 80
-EOF
-
-docker build -t $IMAGE_FRONT .
-
+# Servir com Nginx
 docker run -d \
-  --name $CONTAINER_FRONT \
+  --name hexacore-frontend \
   -p 80:80 \
-  --restart always \
-  $IMAGE_FRONT
+  -v "$FRONT_DIR/build":/usr/share/nginx/html \
+  nginx:latest
 
 echo "✅ Frontend rodando!"
 
